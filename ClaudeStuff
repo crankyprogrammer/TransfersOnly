@@ -1,0 +1,11 @@
+Private Sub Workbook_Activate()
+    On Error Resume Next
+    Application.CommandBars("Queries and Connections").Visible = False
+    On Error GoTo 0
+End Sub
+
+Private Sub Workbook_Deactivate()
+    On Error Resume Next
+    Application.CommandBars("Queries and Connections").Visible = True
+    On Error GoTo 0
+End Sub
