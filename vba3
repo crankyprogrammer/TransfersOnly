@@ -9,17 +9,23 @@ Public Sub PopulateUserInput(accounts As Object)
     Dim accCol      As Long: accCol      = FindTableCol(loEcp, "MasterCRAFT Account")
     Dim lobCol      As Long: lobCol      = FindTableCol(loEcp, "ECP LOB")
     Dim inputLobCol As Long: inputLobCol = FindTableCol(loInput, "ECP LOB")
+    Dim inputMsaCol As Long: inputMsaCol = FindTableCol(loInput, "MSA")
     Dim alignCol    As Long: alignCol    = FindTableCol(loInput, "Alignment Status")
 
     Dim upLobCol   As Long
     Dim upAlignCol As Long
     Dim upMsaCol   As Long
+    Dim upPocCol   As Long
 
     If Not loUploads Is Nothing Then
         upLobCol   = FindTableCol(loUploads, "ECP LOB")
-        upAlignCol = FindTableCol(loUploads, "Alignment Status")
         upMsaCol   = FindTableCol(loUploads, "MSA")
+        upAlignCol = FindTableCol(loUploads, "Alignment Status")
+        upPocCol   = FindTableCol(loUploads, "WFM POC")
     End If
+
+    Dim currentUser As String
+    currentUser = LCase(Trim(Environ("USERNAME")))
 
     If Not loInput.DataBodyRange Is Nothing Then loInput.DataBodyRange.Delete
 
@@ -35,20 +41,23 @@ Public Sub PopulateUserInput(accounts As Object)
             Dim lobVal As String
             lobVal = Trim(CStr(loEcp.DataBodyRange.Cells(r, lobCol).Value))
 
-            ' Look up existing Alignment Status from uploads by ECP LOB + MSA
-            Dim alignVal As String
-            alignVal = "Active and Keep" ' default
+            ' Look up MSA + Alignment Status from uploads by ECP LOB + WFM POC
+            Dim msaVal    As String: msaVal    = ""
+            Dim alignVal  As String: alignVal  = ""
 
-            If Not loUploads Is Nothing And upLobCol > 0 And upAlignCol > 0 And upMsaCol > 0 Then
+            If Not loUploads Is Nothing And upLobCol > 0 And upMsaCol > 0 And upAlignCol > 0 And upPocCol > 0 Then
                 Dim upCell As Range
                 For Each upCell In loUploads.DataBodyRange.Columns(upLobCol).Cells
                     If Trim(CStr(upCell.Value)) = lobVal Then
                         Dim r2 As Long
                         r2 = upCell.Row - loUploads.DataBodyRange.Row + 1
-                        Dim foundAlign As String
-                        foundAlign = Trim(CStr(loUploads.DataBodyRange.Cells(r2, upAlignCol).Value))
-                        If foundAlign <> "" Then alignVal = foundAlign
-                        Exit For
+                        Dim pocVal As String
+                        pocVal = LCase(Trim(CStr(loUploads.DataBodyRange.Cells(r2, upPocCol).Value)))
+                        If pocVal = currentUser Then
+                            msaVal   = Trim(CStr(loUploads.DataBodyRange.Cells(r2, upMsaCol).Value))
+                            alignVal = Trim(CStr(loUploads.DataBodyRange.Cells(r2, upAlignCol).Value))
+                            Exit For
+                        End If
                     End If
                 Next upCell
             End If
@@ -58,7 +67,8 @@ Public Sub PopulateUserInput(accounts As Object)
             newRow = loInput.ListRows.Count
 
             loInput.DataBodyRange(newRow, inputLobCol).Value = lobVal
-            loInput.DataBodyRange(newRow, alignCol).Value = alignVal
+            If msaVal <> "" Then loInput.DataBodyRange(newRow, inputMsaCol).Value = msaVal
+            If alignVal <> "" Then loInput.DataBodyRange(newRow, alignCol).Value = alignVal
         End If
     Next cell
 
