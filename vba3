@@ -1,86 +1,70 @@
-Public Sub PopulateUserInput(accounts As Object)
-    Application.EnableEvents = False
-    On Error GoTo Cleanup
+Private Function InjectTransitionRemoves(wbOut As Workbook, loSrc As ListObject) As Long
+    ' Step 1: Read uploads table, find LOBs with Unmappable/No MSA
+    Dim loUploads As ListObject
+    Set loUploads = FindTable("uploads")
+    If loUploads Is Nothing Then Exit Function
 
-    Dim loEcp     As ListObject: Set loEcp     = FindTable("ecp_lobs")
-    Dim loInput   As ListObject: Set loInput   = FindTable("user_input")
-    Dim loUploads As ListObject: Set loUploads = FindTable("uploads")
+    Dim dictOldHash As Object
+    Set dictOldHash = CreateObject("Scripting.Dictionary")
 
-    Dim accCol      As Long: accCol      = FindTableCol(loEcp, "MasterCRAFT Account")
-    Dim lobCol      As Long: lobCol      = FindTableCol(loEcp, "ECP LOB")
-    Dim inputLobCol As Long: inputLobCol = FindTableCol(loInput, "ECP LOB")
-    Dim inputMsaCol As Long: inputMsaCol = FindTableCol(loInput, "MSA")
-    Dim alignCol    As Long: alignCol    = FindTableCol(loInput, "Alignment Status")
+    Dim i As Long
+    Dim uLOB As String, uAlign As String, uHash As String
+    Dim cLOB As Long, cAlign As Long, cHash As Long
 
-    Dim upLobCol   As Long
-    Dim upAlignCol As Long
-    Dim upMsaCol   As Long
-    Dim upPocCol   As Long
+    cLOB   = FindColumn(loUploads, "ECP LOB")
+    cAlign = FindColumn(loUploads, "Alignment Status")
+    cHash  = FindColumn(loUploads, "Hash")
 
-    If Not loUploads Is Nothing Then
-        upLobCol   = FindTableCol(loUploads, "ECP LOB")
-        upMsaCol   = FindTableCol(loUploads, "MSA")
-        upAlignCol = FindTableCol(loUploads, "Alignment Status")
-        upPocCol   = FindTableCol(loUploads, "WFM POC")
-    End If
-
-    Dim currentUser As String
-    currentUser = LCase(Trim(Environ("USERNAME")))
-
-    If Not loInput.DataBodyRange Is Nothing Then loInput.DataBodyRange.Delete
-
-    Dim cell As Range
-    For Each cell In loEcp.DataBodyRange.Columns(accCol).Cells
-        Dim acct As String
-        acct = Trim(CStr(cell.Value))
-
-        If accounts.Exists(acct) Then
-            Dim r As Long
-            r = cell.Row - loEcp.DataBodyRange.Row + 1
-
-            Dim lobVal As String
-            lobVal = Trim(CStr(loEcp.DataBodyRange.Cells(r, lobCol).Value))
-
-            ' Look up MSA + Alignment Status from uploads by ECP LOB + WFM POC
-            Dim msaVal    As String: msaVal    = ""
-            Dim alignVal  As String: alignVal  = ""
-
-            If Not loUploads Is Nothing And upLobCol > 0 And upMsaCol > 0 And upAlignCol > 0 And upPocCol > 0 Then
-                Dim upCell As Range
-                For Each upCell In loUploads.DataBodyRange.Columns(upLobCol).Cells
-                    If Trim(CStr(upCell.Value)) = lobVal Then
-                        Dim r2 As Long
-                        r2 = upCell.Row - loUploads.DataBodyRange.Row + 1
-                        Dim pocVal As String
-                        pocVal = LCase(Trim(CStr(loUploads.DataBodyRange.Cells(r2, upPocCol).Value)))
-                        If pocVal = currentUser Then
-                            msaVal   = Trim(CStr(loUploads.DataBodyRange.Cells(r2, upMsaCol).Value))
-                            alignVal = Trim(CStr(loUploads.DataBodyRange.Cells(r2, upAlignCol).Value))
-                            Exit For
-                        End If
-                    End If
-                Next upCell
+    For i = 1 To loUploads.DataBodyRange.Rows.Count
+        uAlign = Trim(loUploads.DataBodyRange.Cells(i, cAlign).Value)
+        If uAlign = "Unmappable" Or uAlign = "No MSA" Then
+            uLOB  = Trim(loUploads.DataBodyRange.Cells(i, cLOB).Value)
+            uHash = Trim(loUploads.DataBodyRange.Cells(i, cHash).Value)
+            If Not dictOldHash.Exists(uLOB) Then
+                dictOldHash.Add uLOB, uHash
             End If
-
-            loInput.ListRows.Add
-            Dim newRow As Long
-            newRow = loInput.ListRows.Count
-
-            loInput.DataBodyRange(newRow, inputLobCol).Value = lobVal
-            If msaVal <> "" Then loInput.DataBodyRange(newRow, inputMsaCol).Value = msaVal
-            If alignVal <> "" Then loInput.DataBodyRange(newRow, alignCol).Value = alignVal
         End If
-    Next cell
+    Next i
 
-    ' Clean up formatting
-    If Not loInput.DataBodyRange Is Nothing Then
-        loInput.DataBodyRange.Font.Bold = False
-        loInput.DataBodyRange.Interior.ColorIndex = xlNone
-        loInput.DataBodyRange.Font.Size = 12
-        loInput.DataBodyRange.Font.Color = RGB(0, 0, 0)
-        loInput.DataBodyRange.Columns(FindTableCol(loInput, "Entry Status")).Font.Size = 10
-    End If
+    If dictOldHash.Count = 0 Then Exit Function
 
-Cleanup:
-    Application.EnableEvents = True
-End Sub
+    ' Step 2: Scan user_input for matching LOBs transitioning away
+    Dim loInput As ListObject
+    Set loInput = FindTable("user_input")
+
+    Dim ciLOB As Long, ciAlign As Long, ciUpload As Long
+    ciLOB    = FindColumn(loInput, "ECP LOB")
+    ciAlign  = FindColumn(loInput, "Alignment Status")
+    ciUpload = FindColumn(loInput, "For Upload")
+
+    ' Step 3: Get output table
+    Dim loOut As ListObject
+    Set loOut = wbOut.Sheets(1).ListObjects("Upload")
+
+    Dim coLOB As Long, coAlign As Long, coHash As Long
+    coLOB   = FindColumn(loOut, "ECP LOB")
+    coAlign = FindColumn(loOut, "Alignment Status")
+    coHash  = FindColumn(loOut, "Hash")
+
+    Dim injCount As Long
+
+    For i = 1 To loInput.DataBodyRange.Rows.Count
+        Dim curLOB As String, curAlign As String, curUpload As String
+        curLOB    = Trim(loInput.DataBodyRange.Cells(i, ciLOB).Value)
+        curAlign  = Trim(loInput.DataBodyRange.Cells(i, ciAlign).Value)
+        curUpload = Trim(loInput.DataBodyRange.Cells(i, ciUpload).Value)
+
+        If curUpload = "Yes" And dictOldHash.Exists(curLOB) Then
+            If curAlign <> "Unmappable" And curAlign <> "No MSA" Then
+                Dim newRow As ListRow
+                Set newRow = loOut.ListRows.Add
+                newRow.Range.Cells(1, coLOB).Value   = curLOB
+                newRow.Range.Cells(1, coHash).Value  = dictOldHash(curLOB)
+                newRow.Range.Cells(1, coAlign).Value = "Invalid - Remove"
+                injCount = injCount + 1
+            End If
+        End If
+    Next i
+
+    InjectTransitionRemoves = injCount
+End Function
