@@ -1,0 +1,70 @@
+' ============================================================
+' Called from Workbook_Open after loading screen
+' ============================================================
+Sub RunAccountSelection()
+
+    Dim username As String
+    username = LCase(Trim(Environ("USERNAME")))
+
+    ' --- Get user's distinct Logos from planner_to_account ---
+    Dim loPlanner As ListObject
+    Set loPlanner = FindTable("planner_to_account")
+    If loPlanner Is Nothing Then
+        MsgBox "planner_to_account table not found.", vbCritical : Exit Sub
+    End If
+
+    Dim emailCol As Long: emailCol = FindTableCol(loPlanner, "Employee Email")
+    Dim logoCol  As Long: logoCol  = FindTableCol(loPlanner, "HOLA Account_PowerApps")
+
+    If emailCol = 0 Or logoCol = 0 Then
+        MsgBox "Required columns not found in planner_to_account.", vbCritical : Exit Sub
+    End If
+
+    Dim userLogos As Object
+    Set userLogos = CreateObject("Scripting.Dictionary")
+    userLogos.CompareMode = vbTextCompare
+
+    Dim cell As Range
+    For Each cell In loPlanner.DataBodyRange.Columns(emailCol).Cells
+        If LCase(Trim(CStr(cell.Value))) = username Then
+            Dim r As Long
+            r = cell.Row - loPlanner.DataBodyRange.Row + 1
+            Dim logoVal As String
+            logoVal = Trim(CStr(loPlanner.DataBodyRange.Cells(r, logoCol).Value))
+            If logoVal <> "" And Not userLogos.Exists(logoVal) Then
+                userLogos.Add logoVal, logoVal
+            End If
+        End If
+    Next cell
+
+    If userLogos.Count = 0 Then
+        MsgBox "No account mapping found for: " & username, vbExclamation : Exit Sub
+    End If
+
+    ' --- Check ratios in Logo2Acct_Ratio ---
+    Dim loRatio As ListObject
+    Set loRatio = FindTable("Logo2Acct_Ratio")
+    If loRatio Is Nothing Then
+        MsgBox "Logo2Acct_Ratio table not found.", vbCritical : Exit Sub
+    End If
+
+    Dim ratioLogoCol As Long: ratioLogoCol = FindTableCol(loRatio, "Logo")
+    Dim ratioAcctCol As Long: ratioAcctCol = FindTableCol(loRatio, "MasterCRAFT Account")
+    Dim ratioCol     As Long: ratioCol     = FindTableCol(loRatio, "Ratio")
+
+    If ratioLogoCol = 0 Or ratioAcctCol = 0 Or ratioCol = 0 Then
+        MsgBox "Required columns not found in Logo2Acct_Ratio.", vbCritical : Exit Sub
+    End If
+
+    ' --- Check if ALL user logos are 1:1 ---
+    Dim allOneToOne As Boolean
+    allOneToOne = True
+
+    Dim logo As Variant
+    For Each logo In userLogos.Keys
+        Dim ratioCell As Range
+        For Each ratioCell In loRatio.DataBodyRange.Columns(ratioLogoCol).Cells
+            If LCase(Trim(CStr(ratioCell.Value))) = LCase(CStr(logo)) Then
+                r = ratioCell.Row - loRatio.DataBodyRange.Row + 1
+                If Trim(CStr(loRatio.DataBodyRange.Cells(r, ratioCol).Value)) <> "1:1" Then
+                    allOneToOne = Fals
