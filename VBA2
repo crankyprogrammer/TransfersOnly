@@ -1,0 +1,131 @@
+Option Explicit
+
+Private m_allAccounts() As String
+Private m_selected       As Object
+Private m_userLogos      As Object
+
+' Called before Show to pass the user's logos
+Public Sub SetUserLogos(logos As Object)
+    Set m_userLogos = logos
+End Sub
+
+Private Sub UserForm_Initialize()
+    Set m_selected = CreateObject("Scripting.Dictionary")
+    m_selected.CompareMode = vbTextCompare
+
+    Me.Caption = "Select Your Account(s)"
+    Me.lstAccounts.MultiSelect = fmMultiSelectMulti
+    Me.lstAccounts.ListStyle = fmListStyleOption
+
+    LoadFilteredAccounts
+    PopulateList ""
+End Sub
+
+' Load accounts from Logo2Acct_Ratio filtered to user's logos
+Private Sub LoadFilteredAccounts()
+    Dim loRatio As ListObject
+    Set loRatio = FindTable("Logo2Acct_Ratio")
+    If loRatio Is Nothing Then
+        MsgBox "Logo2Acct_Ratio table not found.", vbCritical
+        Unload Me : Exit Sub
+    End If
+
+    Dim logoCol As Long: logoCol = FindTableCol(loRatio, "Logo")
+    Dim acctCol As Long: acctCol = FindTableCol(loRatio, "MasterCRAFT Account")
+
+    Dim dict As Object
+    Set dict = CreateObject("Scripting.Dictionary")
+    dict.CompareMode = vbTextCompare
+
+    Dim cell As Range
+    For Each cell In loRatio.DataBodyRange.Columns(logoCol).Cells
+        Dim logoVal As String
+        logoVal = Trim(CStr(cell.Value))
+        If m_userLogos.Exists(logoVal) Then
+            Dim r As Long
+            r = cell.Row - loRatio.DataBodyRange.Row + 1
+            Dim acct As String
+            acct = Trim(CStr(loRatio.DataBodyRange.Cells(r, acctCol).Value))
+            If acct <> "" And Not dict.Exists(acct) Then
+                dict.Add acct, acct
+            End If
+        End If
+    Next cell
+
+    ' Sort alphabetically
+    Dim keys() As String
+    keys = dict.Keys
+    Dim i As Long, j As Long, temp As String
+    For i = 0 To UBound(keys) - 1
+        For j = 0 To UBound(keys) - 1 - i
+            If keys(j) > keys(j + 1) Then
+                temp = keys(j) : keys(j) = keys(j + 1) : keys(j + 1) = temp
+            End If
+        Next j
+    Next i
+
+    m_allAccounts = keys
+End Sub
+
+Private Sub PopulateList(ByVal filter As String)
+    filter = LCase(Trim(filter))
+    Me.lstAccounts.Clear
+
+    Dim i As Long
+    For i = 0 To UBound(m_allAccounts)
+        Dim acct As String
+        acct = m_allAccounts(i)
+        If filter = "" Or InStr(1, LCase(acct), filter) > 0 Then
+            Me.lstAccounts.AddItem acct
+            If m_selected.Exists(acct) Then
+                Me.lstAccounts.Selected(Me.lstAccounts.ListCount - 1) = True
+            End If
+        End If
+    Next i
+
+    UpdateCount
+End Sub
+
+Private Sub SyncSelections()
+    Dim i As Long
+    For i = 0 To Me.lstAccounts.ListCount - 1
+        Dim acct As String
+        acct = Me.lstAccounts.List(i)
+        If Me.lstAccounts.Selected(i) Then
+            If Not m_selected.Exists(acct) Then m_selected.Add acct, acct
+        Else
+            If m_selected.Exists(acct) Then m_selected.Remove acct
+        End If
+    Next i
+End Sub
+
+Private Sub UpdateCount()
+    Me.lblCount.Caption = m_selected.Count & " account(s) selected"
+End Sub
+
+Private Sub txtSearch_Change()
+    SyncSelections
+    PopulateList Me.txtSearch.Value
+End Sub
+
+Private Sub lstAccounts_Click()
+    SyncSelections
+    UpdateCount
+End Sub
+
+Private Sub btnOK_Click()
+    SyncSelections
+    If m_selected.Count = 0 Then
+        MsgBox "Please select at least one account.", vbExclamation
+        Exit Sub
+    End If
+
+    SaveSelectedAccounts m_selected
+    PopulateUserInput m_selected
+
+    Unload Me
+End Sub
+
+Private Sub btnCancel_Click()
+    Unload Me
+End Sub
