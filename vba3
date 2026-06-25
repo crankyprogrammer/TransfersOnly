@@ -1,0 +1,76 @@
+Public Sub PopulateUserInput(accounts As Object)
+    Application.EnableEvents = False
+    On Error GoTo Cleanup
+
+    Dim loEcp     As ListObject: Set loEcp     = FindTable("ecp_lobs")
+    Dim loInput   As ListObject: Set loInput   = FindTable("user_input")
+    Dim loUploads As ListObject: Set loUploads = FindTable("uploads")
+
+    Dim accCol      As Long: accCol      = FindTableCol(loEcp, "MasterCRAFT Account")
+    Dim lobCol      As Long: lobCol      = FindTableCol(loEcp, "ECP LOB")
+    Dim inputLobCol As Long: inputLobCol = FindTableCol(loInput, "ECP LOB")
+    Dim alignCol    As Long: alignCol    = FindTableCol(loInput, "Alignment Status")
+
+    Dim upLobCol   As Long
+    Dim upAlignCol As Long
+    Dim upMsaCol   As Long
+
+    If Not loUploads Is Nothing Then
+        upLobCol   = FindTableCol(loUploads, "ECP LOB")
+        upAlignCol = FindTableCol(loUploads, "Alignment Status")
+        upMsaCol   = FindTableCol(loUploads, "MSA")
+    End If
+
+    If Not loInput.DataBodyRange Is Nothing Then loInput.DataBodyRange.Delete
+
+    Dim cell As Range
+    For Each cell In loEcp.DataBodyRange.Columns(accCol).Cells
+        Dim acct As String
+        acct = Trim(CStr(cell.Value))
+
+        If accounts.Exists(acct) Then
+            Dim r As Long
+            r = cell.Row - loEcp.DataBodyRange.Row + 1
+
+            Dim lobVal As String
+            lobVal = Trim(CStr(loEcp.DataBodyRange.Cells(r, lobCol).Value))
+
+            ' Look up existing Alignment Status from uploads by ECP LOB + MSA
+            Dim alignVal As String
+            alignVal = "Active and Keep" ' default
+
+            If Not loUploads Is Nothing And upLobCol > 0 And upAlignCol > 0 And upMsaCol > 0 Then
+                Dim upCell As Range
+                For Each upCell In loUploads.DataBodyRange.Columns(upLobCol).Cells
+                    If Trim(CStr(upCell.Value)) = lobVal Then
+                        Dim r2 As Long
+                        r2 = upCell.Row - loUploads.DataBodyRange.Row + 1
+                        Dim foundAlign As String
+                        foundAlign = Trim(CStr(loUploads.DataBodyRange.Cells(r2, upAlignCol).Value))
+                        If foundAlign <> "" Then alignVal = foundAlign
+                        Exit For
+                    End If
+                Next upCell
+            End If
+
+            loInput.ListRows.Add
+            Dim newRow As Long
+            newRow = loInput.ListRows.Count
+
+            loInput.DataBodyRange(newRow, inputLobCol).Value = lobVal
+            loInput.DataBodyRange(newRow, alignCol).Value = alignVal
+        End If
+    Next cell
+
+    ' Clean up formatting
+    If Not loInput.DataBodyRange Is Nothing Then
+        loInput.DataBodyRange.Font.Bold = False
+        loInput.DataBodyRange.Interior.ColorIndex = xlNone
+        loInput.DataBodyRange.Font.Size = 12
+        loInput.DataBodyRange.Font.Color = RGB(0, 0, 0)
+        loInput.DataBodyRange.Columns(FindTableCol(loInput, "Entry Status")).Font.Size = 10
+    End If
+
+Cleanup:
+    Application.EnableEvents = True
+End Sub
