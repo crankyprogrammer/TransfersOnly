@@ -67,4 +67,104 @@ Sub RunAccountSelection()
             If LCase(Trim(CStr(ratioCell.Value))) = LCase(CStr(logo)) Then
                 r = ratioCell.Row - loRatio.DataBodyRange.Row + 1
                 If Trim(CStr(loRatio.DataBodyRange.Cells(r, ratioCol).Value)) <> "1:1" Then
-                    allOneToOne = Fals
+                    allOneToOne = False
+                    Exit For
+                End If
+            End If
+        Next ratioCell
+        If Not allOneToOne Then Exit For
+    Next logo
+
+    ' --- Branch ---
+    If allOneToOne Then
+        ' Auto-assign: collect MasterCRAFT Accounts directly
+        Dim autoAccounts As Object
+        Set autoAccounts = CreateObject("Scripting.Dictionary")
+        autoAccounts.CompareMode = vbTextCompare
+
+        For Each logo In userLogos.Keys
+            For Each ratioCell In loRatio.DataBodyRange.Columns(ratioLogoCol).Cells
+                If LCase(Trim(CStr(ratioCell.Value))) = LCase(CStr(logo)) Then
+                    r = ratioCell.Row - loRatio.DataBodyRange.Row + 1
+                    Dim acctVal As String
+                    acctVal = Trim(CStr(loRatio.DataBodyRange.Cells(r, ratioAcctCol).Value))
+                    If acctVal <> "" And Not autoAccounts.Exists(acctVal) Then
+                        autoAccounts.Add acctVal, acctVal
+                    End If
+                End If
+            Next ratioCell
+        Next logo
+
+        SaveSelectedAccounts autoAccounts
+        PopulateUserInput autoAccounts
+
+    Else
+        ' Show form filtered to user's logos only
+        Dim frm As New frmAccountSelect
+        frm.SetUserLogos userLogos
+        frm.Show
+    End If
+
+End Sub
+
+' ============================================================
+' Shared: Save to slctd_accts in References
+' ============================================================
+Public Sub SaveSelectedAccounts(accounts As Object)
+
+    Dim wsRef As Worksheet
+    Set wsRef = ThisWorkbook.Sheets("References")
+
+    Dim lo As ListObject
+    On Error Resume Next
+    Set lo = wsRef.ListObjects("slctd_accts")
+    On Error GoTo 0
+
+    If lo Is Nothing Then
+        Dim lastRow As Long
+        lastRow = wsRef.Cells(wsRef.Rows.Count, 1).End(xlUp).Row + 2
+        Set lo = wsRef.ListObjects.Add(xlSrcRange, _
+                 wsRef.Cells(lastRow, 1).Resize(1, 1), , xlYes)
+        lo.Name = "slctd_accts"
+        lo.HeaderRowRange.Value = "MasterCRAFT Account"
+    End If
+
+    If Not lo.DataBodyRange Is Nothing Then lo.DataBodyRange.Delete
+
+    Dim key As Variant
+    For Each key In accounts.Keys
+        lo.ListRows.Add
+        lo.DataBodyRange(lo.ListRows.Count, 1).Value = key
+    Next key
+
+End Sub
+
+' ============================================================
+' Shared: Pre-populate user_input ECP LOB from ecp_lobs
+' ============================================================
+Public Sub PopulateUserInput(accounts As Object)
+
+    Dim loEcp   As ListObject: Set loEcp   = FindTable("ecp_lobs")
+    Dim loInput As ListObject: Set loInput = FindTable("user_input")
+
+    Dim accCol      As Long: accCol      = FindTableCol(loEcp, "MasterCRAFT Account")
+    Dim lobCol      As Long: lobCol      = FindTableCol(loEcp, "ECP LOB")
+    Dim inputLobCol As Long: inputLobCol = FindTableCol(loInput, "ECP LOB")
+
+    If Not loInput.DataBodyRange Is Nothing Then loInput.DataBodyRange.Delete
+
+    Dim cell As Range
+    For Each cell In loEcp.DataBodyRange.Columns(accCol).Cells
+        Dim acct As String
+        acct = Trim(CStr(cell.Value))
+        If accounts.Exists(acct) Then
+            Dim r As Long
+            r = cell.Row - loEcp.DataBodyRange.Row + 1
+            Dim lobVal As String
+            lobVal = Trim(CStr(loEcp.DataBodyRange.Cells(r, lobCol).Value))
+            loInput.ListRows.Add
+            loInput.DataBodyRange(loInput.ListRows.Count, inputLobCol).Value = lobVal
+        End If
+    Next cell
+
+End Sub
